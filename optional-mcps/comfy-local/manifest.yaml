@@ -1,0 +1,132 @@
+# Nous-approved MCP catalog entry.
+# Presence in this directory = approval. Merged via PR review.
+manifest_version: 1
+
+name: comfy-local
+description: Drive your own local ComfyUI install — your models, your GPU, no credits.
+
+source: https://github.com/Comfy-Org/comfy-mcp
+
+# comfy-mcp is a stdio server published to PyPI. It is a thin wrapper over
+# comfy-cli, which is what actually drives the local ComfyUI workspace, so
+# there is nothing to clone or build — a pinned one-shot launcher is the whole
+# install (same shape as the npx/uvx case in the catalog policy).
+#
+# comfy-cli is deliberately NOT a dependency of comfy-mcp: the server runs
+# whichever `comfy` binary PATH (or COMFY_BIN) resolves to, which is usually
+# not the venv uvx builds. See post_install — the user installs comfy-cli
+# themselves, and the version is checked at runtime against the binary
+# actually being called.
+transport:
+  type: stdio
+  command: uvx
+  args:
+    - "comfy-mcp==0.10.0"
+
+# Everything runs against the user's own machine at 127.0.0.1:8188. No
+# credentials are needed for local generation.
+#
+# Comfy Cloud partner (paid) models are reachable through the same server
+# once the user runs `comfy cloud login` — that credential lives in comfy-cli
+# and is never prompted for or stored by Hermes.
+auth:
+  type: none
+
+# Composer-suggestion triggers (desktop brand pills).
+suggest:
+  keywords:
+    - comfyui
+    - comfy local
+    - local comfyui
+  hosts:
+    - comfy.org
+
+# Tool selection at install time:
+# The server exposes 39 tools at 0.10.0. Most are consolidated multi-action
+# verbs (`nodes`, `job`, `download`, `project`), so the schemas are large.
+# The curated default below (22 tools) covers the whole local loop: inspect
+# the install, find a template or model, prep the graph, run it, collect the
+# files.
+#
+# Deliberately excluded from the default (opt back in any time with
+# `hermes mcp configure comfy-local`):
+#   - launch_comfyui, stop_comfyui, restart_comfyui
+#                                     — process lifecycle for the user's
+#                                       running server
+#   - update_comfyui, switch_comfyui_version, install_node, workflow_deps,
+#     node_dependencies               — mutate the install; several are
+#                                       consent-gated (see post_install)
+#   - partner_generate, list_partner_models, partner_model_schema,
+#     emit_partner_workflow, auth_login
+#                                     — Comfy Cloud paid partner models;
+#                                       needs `comfy cloud login` and spends
+#                                       credits
+#   - project                         — comfy.yaml project scoping
+#   - free_memory, get_logs, which    — operator / debug probes
+#   - generate_image                  — one-shot text-to-image convenience
+#                                       wrapper; its blocking wait exceeds
+#                                       Hermes's 300 s MCP transport cap on
+#                                       real local hardware. Use run_template
+#                                       with wait=false + job(action="wait")
+#                                       instead, which is the documented
+#                                       non-blocking path.
+tools:
+  default_enabled:
+    # Inspect the install
+    - server_info
+    - system_stats
+    - discover
+    - auth_status
+    # Discovery
+    - search_models
+    - search_templates
+    - get_template
+    - nodes
+    # Workflow prep
+    - fetch_template
+    - validate_workflow
+    - list_workflow_slots
+    - list_workflow_notes
+    - set_workflow_slot
+    - vary_workflow
+    # Run
+    - run_template
+    - run_workflow
+    - job
+    - fetch_outputs
+    - upload_file
+    # Assets
+    - download_model
+    - download
+    - get_logs
+
+post_install: |
+  comfy-mcp drives a LOCAL ComfyUI through comfy-cli. Two things must be true
+  before any tool works:
+
+    1. comfy-cli is on PATH:
+         pip install "comfy-cli>=1.16.0"
+       comfy-mcp runs whichever `comfy` binary PATH resolves to. If Hermes
+       cannot see it (a venv-scoped install is the usual cause), set COMFY_BIN
+       to the absolute path of the binary in ~/.hermes/.env.
+
+    2. A ComfyUI workspace exists and is running:
+         comfy install     # only if you do not already have one
+         comfy launch       # or start it however you normally do
+       The server talks to 127.0.0.1:8188. Call `server_info` first — it
+       reports the ComfyUI version, the GPU, and the installed models.
+
+  Without comfy-cli the server still starts and completes the MCP handshake;
+  every tool call then fails with "`comfy` not found on PATH". That is a
+  missing engine, not a broken install.
+
+  Generation on your own GPU is free. Comfy Cloud partner models (Veo, Kling,
+  Seedream, Flux, …) are reachable through the same server after
+  `comfy cloud login`, and they spend credits — those tools are unchecked by
+  default.
+
+  Relative paths resolve against the server's own working directory, which is
+  not your project. Pass absolute paths for workflow_path / out_path / out_dir.
+
+  Re-run the tool checklist any time with:
+    hermes mcp configure comfy-local
